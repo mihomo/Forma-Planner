@@ -1,5 +1,7 @@
 # Warframe Forma Planner
 
+[Launch the app: https://forma.him.xx.kg/](https://forma.him.xx.kg/)
+
 [简体中文说明](README.zh-CN.md)
 
 A lightweight static web tool for planning Warframe Forma and polarity layouts across one or more builds.

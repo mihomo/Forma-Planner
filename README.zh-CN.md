@@ -1,5 +1,7 @@
 # Warframe 极化规划器
 
+[立即使用：https://forma.him.xx.kg/](https://forma.him.xx.kg/)
+
 [Back to English README](README.md)
 
 一个用于计算 Warframe 极化方案的静态网页工具。它可以根据多套配卡、MOD 容量、极性、元素顺序、劣化槽和已有极性，推导尽可能省 Forma 的最终槽位布局。
