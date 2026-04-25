@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Warframe Forma Planner</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Noto+Sans+SC:wght@400;500;700;900&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div id="app" class="app-shell" v-cloak>
+        <header class="topbar">
+            <div class="brand-lockup">
+                <span class="brand-mark">WF</span>
+                <div>
+                    <strong>{{ t('appTitle') }}</strong>
+                    <span>ARSENAL FORMA ROUTE</span>
+                </div>
+            </div>
+
+            <nav class="stepper" :aria-label="t('stepAria')">
+                <button
+                    v-for="step in steps"
+                    :key="step.id"
+                    class="step-chip"
+                    :class="{ active: currentStep === step.id, done: currentStep > step.id }"
+                    @click="goToStep(step.id)"
+                >
+                    <span>{{ step.id }}</span>
+                    <strong>{{ step.title }}</strong>
+                </button>
+            </nav>
+
+            <div class="topbar-stats">
+                <div>
+                    <span>{{ t('statLoadouts') }}</span>
+                    <strong>{{ totalConfiguredLoadouts }}</strong>
+                </div>
+                <div>
+                    <span>MOD</span>
+                    <strong>{{ totalFilledMods }}</strong>
+                </div>
+                <div>
+                    <span>{{ t('statDatabase') }}</span>
+                    <strong>{{ modDatabase.length }}</strong>
+                </div>
+            </div>
+            <div class="language-switch">
+                <span>{{ t('language') }}</span>
+                <button type="button" :class="{ active: currentLanguage === 'zh-hans' }" @click="setLanguage('zh-hans')">{{ t('chinese') }}</button>
+                <button type="button" :class="{ active: currentLanguage === 'en' }" @click="setLanguage('en')">{{ t('english') }}</button>
+            </div>
+        </header>
+
+        <main class="stage">
+            <section v-if="currentStep === 1" class="screen screen-slots">
+                <div class="screen-head">
+                    <div>
+                        <span class="eyebrow">STEP 1</span>
+                        <h1>{{ t('step1Title') }}</h1>
+                    </div>
+                    <label class="switch-line">
+                        <input type="checkbox" v-model="allowOverride" @change="markDirty">
+                        <span>{{ t('allowOverride') }}</span>
+                    </label>
+                </div>
+
+                <div class="arsenal-layout">
+                    <aside class="arsenal-panel">
+                        <div class="panel-stat">
+                            <span>{{ t('overrideMode') }}</span>
+                            <strong>{{ allowOverride ? t('allow') : t('protect') }}</strong>
+                        </div>
+                        <div class="strategy-panel">
+                            <span>{{ t('rareFormaStrategy') }}</span>
+                            <label class="strategy-toggle">
+                                <input type="checkbox" v-model="preferOmniForma" @change="markDirty">
+                                <strong>{{ t('preferOmni') }}</strong>
+                                <small>{{ t('preferOmniHint') }}</small>
+                            </label>
+                            <label class="strategy-toggle">
+                                <input type="checkbox" v-model="preferUmbraForma" @change="markDirty">
+                                <strong>{{ t('preferUmbra') }}</strong>
+                                <small>{{ t('preferUmbraHint') }}</small>
+                            </label>
+                        </div>
+                        <div class="polarity-legend">
+                            <button
+                                v-for="p in polarities"
+                                :key="p.id"
+                                type="button"
+                                class="polarity-chip"
+                                :style="{ '--pol-color': p.color }"
+                            >
+                                <span>{{ p.symbol }}</span>
+                                <strong>{{ p.shortName }}</strong>
+                            </button>
+                        </div>
+                    </aside>
+
+                    <div class="slot-board">
+                        <div class="slots-grid">
+                            <div v-for="(slot, i) in slots" :key="i" class="slot-box" :style="{ '--pol-color': getPol(slot).color }">
+                                <div class="slot-index">{{ i === 8 ? t('specialSlot') : t('slotLabel', i + 1) }}</div>
+                                <div class="slot-symbol" :style="{ color: getPol(slot).color }">{{ getPol(slot).symbol }}</div>
+                                <select v-model="slots[i]" class="wf-select tiny-select" @change="markDirty">
+                                    <option v-for="p in polarities" :key="p.id" :value="p.id">{{ getPolName(p.id) }}</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section v-if="currentStep === 2" class="screen screen-loadouts">
+                <div class="screen-head">
+                    <div>
+                        <span class="eyebrow">STEP 2</span>
+                        <h1>{{ t('step2Title') }}</h1>
+                    </div>
+                    <div class="action-row">
+                        <button class="btn btn-ghost" @click="cloneLoadout(activeLoadoutIndex)" :disabled="loadouts.length >= 5">{{ t('copyCurrent') }}</button>
+                        <button class="btn btn-primary-soft" @click="addLoadout" :disabled="loadouts.length >= 5">{{ t('addLoadout') }}</button>
+                    </div>
+                </div>
+
+                <div class="loadout-tabs">
+                    <button
+                        v-for="(loadout, idx) in loadouts"
+                        :key="loadout.id"
+                        class="loadout-tab"
+                        :class="{ active: activeLoadoutIndex === idx }"
+                        @click="activeLoadoutIndex = idx"
+                    >
+                        <span>{{ getLoadoutLabel(idx) }}</span>
+                        <strong>{{ getLoadoutSummary(loadout) }}</strong>
+                        <small>{{ t('capacity') }} {{ loadout.capacity }}</small>
+                        <b v-if="loadouts.length > 1" @click.stop="removeLoadout(idx)">×</b>
+                    </button>
+                </div>
+
+                <div class="loadout-command">
+                    <div class="capacity-module">
+                        <span>{{ t('totalCapacity') }}</span>
+                        <small>{{ t('totalCapacityHint') }}</small>
+                        <input type="number" v-model.number="activeLoadout.capacity" min="0" max="100" class="capacity-input" data-capacity-input @change="markDirty">
+                    </div>
+                    <div class="loadout-readout">
+                        <span>{{ getLoadoutSummary(activeLoadout) }}</span>
+                        <strong>{{ getEstimatedDrain(activeLoadout) }}</strong>
+                    </div>
+                    <div class="action-row">
+                        <button class="btn btn-ghost" @click="syncCapacityToAll">{{ t('syncCapacity') }}</button>
+                        <button class="btn btn-ghost" @click="clearMods" :disabled="!hasAnyData(activeLoadout)">{{ t('clearCurrent') }}</button>
+                    </div>
+                </div>
+
+                <div class="db-status" :class="{ offline: !databaseReady }">
+                    <strong v-if="databaseReady">{{ t('dbLoaded', modDatabase.length) }}</strong>
+                    <strong v-else>{{ t('dbOffline') }}</strong>
+                    <span>{{ t('dbElementHint') }}</span>
+                    <span>{{ t('dbTabHint') }}</span>
+                </div>
+
+                <div class="mod-slot-layout">
+                    <article class="mod-edit-card special-mod-card mod-slot-card mod-slot-card-special">
+                        <div class="mod-edit-head">
+                            <div>
+                                <span class="mod-num special">EX</span>
+                                <strong>{{ t('degradedSlot') }}</strong>
+                            </div>
+                            <button class="btn-clear" @click="clearSpecialMod(activeLoadout)" v-if="hasModData(activeLoadout.specialMod)">{{ t('uninstall') }}</button>
+                        </div>
+
+                        <div class="mod-main">
+                            <div class="input-group mod-name-group">
+                                <label>{{ t('modName') }}</label>
+                                <div class="mod-name-wrap">
+                                    <input
+                                        type="text"
+                                        class="wf-input"
+                                        v-model.trim="activeLoadout.specialMod.name"
+                                        :placeholder="t('specialPlaceholder')"
+                                        data-mod-name="special"
+                                        @input="handleModNameInput(activeLoadout.specialMod)"
+                                        @focus="handleNameFocus(activeLoadout.specialMod)"
+                                        @click="openSearch(activeLoadout.specialMod)"
+                                        @blur="closeSearch(activeLoadout.specialMod)"
+                                        @keydown.down.prevent="moveSuggestion(activeLoadout.specialMod, 1, 'special')"
+                                        @keydown.up.prevent="moveSuggestion(activeLoadout.specialMod, -1, 'special')"
+                                        @keydown.enter.prevent="confirmSuggestion(activeLoadout.specialMod, 'special')"
+                                        @keydown.tab="handleNameTab($event, activeLoadout.specialMod, 'special', 0)"
+                                    />
+                                    <div v-if="activeLoadout.specialMod.searchOpen && getSuggestions(activeLoadout.specialMod, 'special').length" class="suggestions-list">
+                                        <button
+                                            v-for="(suggestion, suggestionIndex) in getSuggestions(activeLoadout.specialMod, 'special')"
+                                            :key="suggestion.key"
+                                            type="button"
+                                            class="suggestion-item"
+                                            :class="{ active: activeLoadout.specialMod.activeSuggestion === suggestionIndex, custom: suggestion.kind === 'custom' }"
+                                            @mousedown.prevent="selectSuggestion(activeLoadout.specialMod, suggestion)"
+                                        >
+                                            <template v-if="suggestion.kind === 'database'">
+                                                <span class="suggestion-name">{{ suggestion.mod.name }}</span>
+                                                <span class="suggestion-meta">
+                                                    {{ getPolName(suggestion.mod.polarity) }} · {{ t('maxRank') }} {{ suggestion.mod.maxDrain }}
+                                                    <span v-if="suggestion.mod.isPrime">· Prime</span>
+                                                </span>
+                                            </template>
+                                            <template v-else>
+                                                <span class="suggestion-name">{{ suggestion.label }}</span>
+                                                <span class="suggestion-meta">{{ t('customMeta') }}</span>
+                                            </template>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="mod-fields">
+                                <div class="input-group">
+                                    <label>{{ t('points') }}</label>
+                                    <input type="number" class="wf-input" v-model.number="activeLoadout.specialMod.cost" min="0" max="25" @change="markDirty">
+                                </div>
+                                <div class="input-group">
+                                    <label>{{ t('polarity') }}</label>
+                                    <select v-model="activeLoadout.specialMod.polarity" class="wf-select" @change="markDirty">
+                                        <option v-for="p in polarities" :key="p.id" :value="p.id">{{ getPolName(p.id) }}</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                    </article>
+
+                    <article v-for="(mod, i) in activeLoadout.mods" :key="mod.id" class="mod-edit-card mod-slot-card" :class="`mod-slot-card-${i + 1}`">
+                        <div class="mod-edit-head">
+                            <div>
+                                <span class="mod-num">{{ i + 1 }}</span>
+                                <strong>{{ mod.name || t('emptySlot') }}</strong>
+                            </div>
+                            <label class="element-toggle">
+                                <input type="checkbox" v-model="mod.isElement" @change="markDirty">
+                                <span>{{ t('element') }}</span>
+                            </label>
+                        </div>
+
+                        <div class="mod-main">
+                            <div class="input-group mod-name-group">
+                                <label>{{ t('modName') }}</label>
+                                <div class="mod-name-wrap">
+                                    <input
+                                        type="text"
+                                        class="wf-input"
+                                        v-model.trim="mod.name"
+                                        :placeholder="t('normalPlaceholder')"
+                                        :data-mod-name="`normal-${i}`"
+                                        @input="handleModNameInput(mod)"
+                                        @focus="handleNameFocus(mod)"
+                                        @click="openSearch(mod)"
+                                        @blur="closeSearch(mod)"
+                                        @keydown.down.prevent="moveSuggestion(mod, 1)"
+                                        @keydown.up.prevent="moveSuggestion(mod, -1)"
+                                        @keydown.enter.prevent="confirmSuggestion(mod)"
+                                        @keydown.tab="handleNameTab($event, mod, 'normal', i)"
+                                    />
+                                    <div v-if="mod.searchOpen && getSuggestions(mod).length" class="suggestions-list">
+                                        <button
+                                            v-for="(suggestion, suggestionIndex) in getSuggestions(mod)"
+                                            :key="suggestion.key"
+                                            type="button"
+                                            class="suggestion-item"
+                                            :class="{ active: mod.activeSuggestion === suggestionIndex, custom: suggestion.kind === 'custom' }"
+                                            @mousedown.prevent="selectSuggestion(mod, suggestion)"
+                                        >
+                                            <template v-if="suggestion.kind === 'database'">
+                                                <span class="suggestion-name">{{ suggestion.mod.name }}</span>
+                                                <span class="suggestion-meta">
+                                                    {{ getPolName(suggestion.mod.polarity) }} · {{ t('maxRank') }} {{ suggestion.mod.maxDrain }}
+                                                    <span v-if="suggestion.mod.isPrime">· Prime</span>
+                                                </span>
+                                            </template>
+                                            <template v-else>
+                                                <span class="suggestion-name">{{ suggestion.label }}</span>
+                                                <span class="suggestion-meta">{{ t('customMeta') }}</span>
+                                            </template>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="mod-fields">
+                                <div class="input-group">
+                                    <label>{{ t('points') }}</label>
+                                    <input type="number" class="wf-input" v-model.number="mod.cost" min="0" max="25" @change="markDirty">
+                                </div>
+                                <div class="input-group">
+                                    <label>{{ t('polarity') }}</label>
+                                    <select v-model="mod.polarity" class="wf-select" @change="markDirty">
+                                        <option v-for="p in polarities" :key="p.id" :value="p.id">{{ getPolName(p.id) }}</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                    </article>
+                </div>
+            </section>
+
+            <section v-if="currentStep === 3" class="screen screen-results">
+                <div class="screen-head">
+                    <div>
+                        <span class="eyebrow">STEP 3</span>
+                        <h1>{{ t('step3Title') }}</h1>
+                    </div>
+                    <button class="btn btn-action" @click="calculate" :disabled="!canCalculate">{{ t('recalc') }}</button>
+                </div>
+
+                <div v-if="result" class="result-area">
+                    <div v-if="result.success" class="result-shell">
+                        <aside class="result-aside">
+                            <span class="eyebrow">FORMA</span>
+                            <strong>{{ result.plan.formasNeeded }}</strong>
+                            <span>{{ t('times') }}</span>
+                        </aside>
+
+                        <div class="result-main">
+                            <div class="result-title-row">
+                                <h2>{{ getResultHeadline() }}</h2>
+                                <div class="result-summary-grid">
+                                    <button
+                                        v-for="(plan, idx) in result.plan.loadoutPlans"
+                                        :key="idx"
+                                        class="result-summary-card"
+                                        :class="{ active: viewResultLoadout === idx, over: plan.capLeft < 0 }"
+                                        @click="viewResultLoadout = idx"
+                                    >
+                                        <strong>{{ getLoadoutLabel(idx) }}</strong>
+                                        <span>{{ plan.capLeft >= 0 ? t('remaining') + ' ' + plan.capLeft : t('short') + ' ' + Math.abs(plan.capLeft) }} / {{ plan.capacity }}</span>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div v-if="result.plan.overCapacity" class="capacity-warning">
+                                <strong>{{ t('capacityWarningTitle') }}</strong>
+                                <span>{{ t('capacityWarningBody', result.plan.capacityShortage, result.plan.worstCapacityShortage) }}</span>
+                            </div>
+
+                            <div class="result-section" v-if="result.plan.formaActions.length > 0">
+                                <h3>{{ t('formaWorkOrder') }}</h3>
+                                <ul class="steps-list">
+                                    <li v-for="(action, index) in result.plan.formaActions" :key="index">
+                                        <strong>{{ action.slotIndex === 8 ? t('specialSlotFull') : t('slotLabel', action.slotIndex + 1) }}</strong>
+                                        <span>{{ getPolName(action.oldPolarity) }} → {{ getPolName(action.newPolarity) }}</span>
+                                    </li>
+                                </ul>
+                            </div>
+
+                            <div class="result-section">
+                                <h3>{{ t('finalPlacement') }}</h3>
+                                <div class="slots-grid result-slots-grid" :key="viewResultLoadout">
+                                    <div
+                                        v-for="(fs, i) in result.plan.finalSlots"
+                                        :key="i"
+                                        class="slot-box slot-box-result"
+                                        :class="{ 'forma-animated': fs.isForma }"
+                                        :style="{ '--pol-color': getPol(fs.finalPol).color }"
+                                    >
+                                        <div class="slot-index">
+                                            {{ i === 8 ? t('specialSlot') : t('slotLabel', i + 1) }}
+                                            <div v-if="fs.isForma" class="slot-forma-flag">{{ t('needForma') }}</div>
+                                        </div>
+
+                                        <div class="slot-symbol" :style="{ color: getPol(fs.finalPol).color, opacity: getPlacedMod(fs, viewResultLoadout) ? 0.25 : 1 }">
+                                            {{ getPol(fs.finalPol).symbol }}
+                                        </div>
+
+                                        <div class="placed-mod" v-if="getPlacedMod(fs, viewResultLoadout)">
+                                            <div class="placed-mod-main">
+                                                <div class="mod-pol" :style="{ color: getPol(getPlacedMod(fs, viewResultLoadout).mod.polarity).color }">
+                                                    {{ getPol(getPlacedMod(fs, viewResultLoadout).mod.polarity).symbol }}
+                                                </div>
+                                                <div class="placed-mod-name">{{ getPlacedMod(fs, viewResultLoadout).mod.name }}</div>
+                                            </div>
+                                            <div class="placed-mod-costs">
+                                                <div class="mod-cost-current">{{ getPlacedMod(fs, viewResultLoadout).effectiveCost }}</div>
+                                                <div class="mod-cost-base" v-if="getPlacedMod(fs, viewResultLoadout).effectiveCost !== getPlacedMod(fs, viewResultLoadout).originalCost">
+                                                    {{ getPlacedMod(fs, viewResultLoadout).originalCost }}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div v-else class="empty-mod">{{ t('notInstalled') }}</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div v-else class="error-msg">{{ result.msg }}</div>
+                </div>
+
+                <div v-else class="result-placeholder">
+                    <strong>{{ t('noResultTitle') }}</strong>
+                    <span>{{ t('noResultHint') }}</span>
+                </div>
+            </section>
+        </main>
+
+        <footer class="wizard-footer">
+            <div class="wizard-footer-left">
+                <span>{{ t('wizardStep', currentStep) }}</span>
+                <strong>{{ steps[currentStep - 1].title }}</strong>
+            </div>
+            <div class="wizard-footer-actions">
+                <button class="btn btn-ghost" @click="prevStep" :disabled="currentStep === 1">{{ t('prevStep') }}</button>
+                <button v-if="currentStep < 3" class="btn btn-primary-soft" @click="nextStep" :disabled="!canGoNext">{{ t('nextStep') }}</button>
+                <button v-else class="btn btn-action" @click="calculate" :disabled="!canCalculate">{{ t('startCalc') }}</button>
+            </div>
+        </footer>
+    </div>
+
+    <script src="mods.zh-hans.js"></script>
+    <script src="mods.en.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
