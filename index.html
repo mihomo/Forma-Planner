@@ -113,6 +113,19 @@
                         </div>
                     </div>
                 </div>
+
+                <div class="screenshot-panel">
+                    <div>
+                        <span class="eyebrow">{{ t('screenshotImport') }}</span>
+                        <h3>{{ t('uploadCurrentSlots') }}</h3>
+                        <p>{{ t('uploadCurrentSlotsHint') }}</p>
+                    </div>
+                    <label class="btn btn-primary-soft file-btn" :class="{ disabled: screenshotBusy }">
+                        {{ screenshotBusy ? t('screenshotBusy') : t('chooseImage') }}
+                        <input type="file" accept="image/*" @change="handleSlotScreenshotUpload" :disabled="screenshotBusy">
+                    </label>
+                    <div class="screenshot-status" v-if="screenshotStatus">{{ screenshotStatus }}</div>
+                </div>
             </section>
 
             <section v-if="currentStep === 2" class="screen screen-loadouts">
@@ -163,6 +176,19 @@
                     <strong v-else>{{ t('dbOffline') }}</strong>
                     <span>{{ t('dbElementHint') }}</span>
                     <span>{{ t('dbTabHint') }}</span>
+                </div>
+
+                <div class="screenshot-panel compact">
+                    <div>
+                        <span class="eyebrow">{{ t('screenshotImport') }}</span>
+                        <h3>{{ t('uploadTargetBuild') }}</h3>
+                        <p>{{ t('uploadTargetBuildHint') }}</p>
+                    </div>
+                    <label class="btn btn-primary-soft file-btn" :class="{ disabled: screenshotBusy }">
+                        {{ screenshotBusy ? t('screenshotBusy') : t('chooseImage') }}
+                        <input type="file" accept="image/*" @change="handleBuildScreenshotUpload" :disabled="screenshotBusy">
+                    </label>
+                    <div class="screenshot-status" v-if="screenshotStatus">{{ screenshotStatus }}</div>
                 </div>
 
                 <div class="mod-slot-layout">

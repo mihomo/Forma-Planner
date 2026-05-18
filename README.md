@@ -26,6 +26,7 @@ The app supports bilingual MOD search, multi-build optimization, element-order c
 - Optional Exilus MOD support.
 - Existing polarity protection when overriding is disabled.
 - Omni Forma and Umbra Forma strategy toggles.
+- Browser-side screenshot OCR: import current slots on step 1, import a target build and calculate on step 2.
 - Capacity-shortage reporting even when the build cannot fit.
 - No backend, no build step, no account required.
 
@@ -79,9 +80,15 @@ Important options:
 - `Prefer Omni Forma`: disabled by default. When enabled, Omni Forma is used only if it saves more than one regular Forma in multi-build planning.
 - `Prefer Umbra Forma`: disabled by default. When enabled, builds with Umbra MODs prefer matching Umbra slots when the Forma count ties; otherwise Umbra Forma is used only if it saves more than one regular Forma.
 
+Step 1 can also import your current slots from your own build screenshot. The tool infers matched slot polarities from MOD drain colors; uncertain empty or mismatched slots keep their manual settings.
+
 The app will still use Omni or Umbra Forma when there is no other feasible solution.
 
 ### 2. Enter Target Builds
+
+You can fill the build manually or upload a target build screenshot on step 2. Screenshot OCR writes normal-slot MODs in visual order, detects the right-side or top-right Exilus slot, and for Warframe screenshots tries to read the top-left Aura capacity bonus.
+
+OCR runs entirely in the browser, so it works on GitHub Pages without a backend. Different screenshot resolutions are handled with relative positions, but the image should keep complete MOD cards, drain numbers, and the core slot area visible.
 
 Each build has:
 

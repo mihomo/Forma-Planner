@@ -109,7 +109,19 @@ const I18N = {
         headlineForma: (count) => `最少需要 ${count} 次极化`,
         loadoutLabel: (index) => `配置 ${index + 1}`,
         polNone: '无极性 (-)',
-        polOmni: '全能 (Omni)'
+        polOmni: '全能 (Omni)',
+        screenshotImport: '截图识别',
+        uploadCurrentSlots: '识别已有槽位',
+        uploadCurrentSlotsHint: '上传自己的战甲或武器配卡截图；绿色消耗代表槽位匹配，会自动写入对应极性，无法确认的槽位会保留原值。',
+        uploadTargetBuild: '识别目标配卡并计算',
+        uploadTargetBuildHint: '上传目标配卡截图；会按截图顺序写入普通槽与劣化槽。战甲截图会尝试读取光环加成并更新总容量。',
+        chooseImage: '选择截图',
+        screenshotBusy: '正在识别截图，请稍候……',
+        screenshotNoOcr: '截图识别需要加载 Tesseract.js，请检查网络或稍后重试。',
+        screenshotSlotsDone: (count, uncertain) => `已识别 ${count} 个已有极性槽${uncertain ? `，${uncertain} 个槽位无法可靠判断，已保留原值` : ''}。`,
+        screenshotBuildDone: (count, auraBonus) => `已写入 ${count} 张 MOD${auraBonus ? `，并按光环加成将总容量更新为 ${60 + auraBonus}` : ''}，已开始推演。`,
+        screenshotNoMods: '没有从截图中识别到可用 MOD，请尝试裁掉无关区域或使用更清晰的截图。',
+        screenshotError: (message) => `截图识别失败：${message}`
     },
     en: {
         appTitle: 'Forma Planner',
@@ -189,7 +201,19 @@ const I18N = {
         headlineForma: (count) => `Minimum ${count} Forma`,
         loadoutLabel: (index) => `Build ${index + 1}`,
         polNone: 'None (-)',
-        polOmni: 'Omni'
+        polOmni: 'Omni',
+        screenshotImport: 'Screenshot OCR',
+        uploadCurrentSlots: 'Read current slots',
+        uploadCurrentSlotsHint: 'Upload your own Warframe or weapon build screenshot. Green drain means the slot matches and its polarity can be imported; uncertain slots keep their current value.',
+        uploadTargetBuild: 'Read target build and calculate',
+        uploadTargetBuildHint: 'Upload a target build screenshot. Mods are written in screenshot order. Warframe screenshots try to read Aura capacity bonus.',
+        chooseImage: 'Choose image',
+        screenshotBusy: 'Reading screenshot…',
+        screenshotNoOcr: 'Screenshot OCR requires Tesseract.js. Check your network and try again.',
+        screenshotSlotsDone: (count, uncertain) => `Imported ${count} current polarity slots${uncertain ? `; ${uncertain} uncertain slots were kept unchanged` : ''}.`,
+        screenshotBuildDone: (count, auraBonus) => `Imported ${count} MODs${auraBonus ? ` and updated capacity to ${60 + auraBonus} from Aura bonus` : ''}. Calculation started.`,
+        screenshotNoMods: 'No usable MODs were recognized. Try a clearer screenshot or crop unrelated areas.',
+        screenshotError: (message) => `Screenshot OCR failed: ${message}`
     }
 };
 
@@ -335,6 +359,8 @@ createApp({
         const preferUmbraForma = ref(false);
         const slots = ref(new Array(TOTAL_SLOT_COUNT).fill('none'));
         const result = ref(null);
+        const screenshotStatus = ref('');
+        const screenshotBusy = ref(false);
         const activeLoadoutIndex = ref(0);
         const viewResultLoadout = ref(0);
         const currentStep = ref(1);
@@ -614,6 +640,367 @@ createApp({
 
             event.preventDefault();
             focusNextModName(event.target, mode, index);
+        }
+
+        function loadScript(src) {
+            return new Promise((resolve, reject) => {
+                const existing = document.querySelector(`script[src="${src}"]`);
+                if (existing) {
+                    existing.addEventListener('load', resolve, { once: true });
+                    existing.addEventListener('error', reject, { once: true });
+                    return;
+                }
+
+                const script = document.createElement('script');
+                script.src = src;
+                script.async = true;
+                script.onload = resolve;
+                script.onerror = reject;
+                document.head.appendChild(script);
+            });
+        }
+
+        async function ensureScreenshotOcr() {
+            if (window.Tesseract) return true;
+            try {
+                await loadScript('https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js');
+                return Boolean(window.Tesseract);
+            } catch {
+                return false;
+            }
+        }
+
+        function loadScreenshotImage(file) {
+            return new Promise((resolve, reject) => {
+                const image = new Image();
+                const url = URL.createObjectURL(file);
+                image.onload = () => {
+                    URL.revokeObjectURL(url);
+                    resolve(image);
+                };
+                image.onerror = () => {
+                    URL.revokeObjectURL(url);
+                    reject(new Error('image load failed'));
+                };
+                image.src = url;
+            });
+        }
+
+        function drawScreenshotToCanvas(image) {
+            const canvas = document.createElement('canvas');
+            canvas.width = image.naturalWidth || image.width;
+            canvas.height = image.naturalHeight || image.height;
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
+            ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+            return { canvas, ctx };
+        }
+
+        async function recognizeScreenshot(file) {
+            const hasOcr = await ensureScreenshotOcr();
+            if (!hasOcr) throw new Error(t('screenshotNoOcr'));
+
+            const image = await loadScreenshotImage(file);
+            const { canvas, ctx } = drawScreenshotToCanvas(image);
+            const { data } = await window.Tesseract.recognize(canvas, 'chi_sim+eng');
+            return {
+                width: canvas.width,
+                height: canvas.height,
+                ctx,
+                lines: (data.lines || []).filter((line) => line.text && line.bbox),
+                words: (data.words || []).filter((word) => word.text && word.bbox)
+            };
+        }
+
+        function normalizeScreenshotText(text) {
+            return String(text || '')
+                .toLowerCase()
+                .replace(/prime/gi, 'prime')
+                .replace(/[\s·・,，.。:：;；'’"“”_\-—|丨/\\()[\]{}<>《》【】]/g, '');
+        }
+
+        function levenshteinDistance(a, b) {
+            const previous = new Array(b.length + 1);
+            const current = new Array(b.length + 1);
+            for (let j = 0; j <= b.length; j++) previous[j] = j;
+
+            for (let i = 1; i <= a.length; i++) {
+                current[0] = i;
+                for (let j = 1; j <= b.length; j++) {
+                    current[j] = Math.min(
+                        previous[j] + 1,
+                        current[j - 1] + 1,
+                        previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)
+                    );
+                }
+                for (let j = 0; j <= b.length; j++) previous[j] = current[j];
+            }
+
+            return previous[b.length];
+        }
+
+        function getScreenshotMatchScore(rawText, dbName) {
+            const text = normalizeScreenshotText(rawText);
+            const name = normalizeScreenshotText(dbName);
+            if (text.length < 2 || name.length < 2) return 0;
+            if (text === name) return 1;
+            if (text.includes(name) || name.includes(text)) {
+                return Math.min(text.length, name.length) / Math.max(text.length, name.length);
+            }
+            if (Math.abs(text.length - name.length) > Math.max(3, name.length * 0.45)) return 0;
+            const distance = levenshteinDistance(text, name);
+            return 1 - (distance / Math.max(text.length, name.length));
+        }
+
+        function findBestScreenshotMod(text, mode = 'normal') {
+            let best = null;
+            for (const dbMod of modDatabase.value) {
+                if (mode === 'special' && !dbMod.isUtility) continue;
+                const score = getScreenshotMatchScore(text, dbMod.name);
+                if (!best || score > best.score) {
+                    best = { mod: dbMod, score };
+                }
+            }
+
+            if ((!best || best.score < 0.72) && mode === 'special') {
+                return findBestScreenshotMod(text, 'normal');
+            }
+
+            return best && best.score >= 0.72 ? best : null;
+        }
+
+        function getBBoxCenter(bbox) {
+            return {
+                x: (bbox.x0 + bbox.x1) / 2,
+                y: (bbox.y0 + bbox.y1) / 2
+            };
+        }
+
+        function getScreenshotModMatches(ocr) {
+            const matches = [];
+            for (const line of ocr.lines) {
+                if (/^\s*[+\-]?\d+\s*$/.test(line.text)) continue;
+                const best = findBestScreenshotMod(line.text);
+                if (!best) continue;
+
+                const center = getBBoxCenter(line.bbox);
+                matches.push({
+                    line,
+                    mod: best.mod,
+                    score: best.score,
+                    centerX: center.x,
+                    centerY: center.y
+                });
+            }
+
+            return matches
+                .sort((a, b) => b.score - a.score)
+                .filter((match, index, list) =>
+                    list.findIndex((other) =>
+                        other.mod.uniqueName === match.mod.uniqueName
+                        && Math.abs(other.centerX - match.centerX) < ocr.width * 0.08
+                        && Math.abs(other.centerY - match.centerY) < ocr.height * 0.08
+                    ) === index
+                );
+        }
+
+        function sortMatchesBySlotOrder(matches, width, height) {
+            const rows = [];
+            const rowTolerance = height * 0.16;
+
+            for (const match of [...matches].sort((a, b) => a.centerY - b.centerY)) {
+                let row = rows.find((candidate) => Math.abs(candidate.y - match.centerY) < rowTolerance);
+                if (!row) {
+                    row = { y: match.centerY, items: [] };
+                    rows.push(row);
+                }
+                row.items.push(match);
+                row.y = row.items.reduce((sum, item) => sum + item.centerY, 0) / row.items.length;
+            }
+
+            return rows
+                .sort((a, b) => a.y - b.y)
+                .flatMap((row) => row.items.sort((a, b) => a.centerX - b.centerX))
+                .slice(0, NORMAL_SLOT_COUNT);
+        }
+
+        function classifyScreenshotSlots(matches, width, height) {
+            const used = new Set();
+            let aura = null;
+            let special = null;
+
+            const rightSpecials = matches
+                .filter((match) => match.centerX > width * 0.78 && match.centerY > height * 0.25)
+                .sort((a, b) => b.centerX - a.centerX);
+            if (rightSpecials.length) {
+                special = rightSpecials[0];
+                used.add(special);
+            } else {
+                const topMatches = matches
+                    .filter((match) => match.centerY < height * 0.34)
+                    .sort((a, b) => a.centerX - b.centerX);
+                if (topMatches.length >= 2) {
+                    aura = topMatches[0];
+                    special = topMatches[topMatches.length - 1];
+                    used.add(aura);
+                    used.add(special);
+                } else if (topMatches.length === 1) {
+                    aura = topMatches[0];
+                    used.add(aura);
+                }
+            }
+
+            const normal = sortMatchesBySlotOrder(matches.filter((match) => !used.has(match)), width, height);
+            return { aura, special, normal };
+        }
+
+        function findNearestDrainWord(match, words, width, height) {
+            let best = null;
+            for (const word of words) {
+                const parsed = String(word.text || '').match(/[+\-]?\d+/);
+                if (!parsed) continue;
+
+                const center = getBBoxCenter(word.bbox);
+                const dx = center.x - match.centerX;
+                const dy = center.y - match.centerY;
+                if (dx < 20 || dx > width * 0.22) continue;
+                if (Math.abs(dy) > height * 0.20) continue;
+
+                const score = dx + Math.abs(dy) * 1.5;
+                if (!best || score < best.score) {
+                    best = { word, value: Number(parsed[0]), score };
+                }
+            }
+            return best;
+        }
+
+        function classifyDrainColor(ctx, bbox, width, height) {
+            const x0 = Math.max(0, Math.floor(bbox.x0 - 4));
+            const y0 = Math.max(0, Math.floor(bbox.y0 - 4));
+            const x1 = Math.min(width, Math.ceil(bbox.x1 + 4));
+            const y1 = Math.min(height, Math.ceil(bbox.y1 + 4));
+            const data = ctx.getImageData(x0, y0, Math.max(1, x1 - x0), Math.max(1, y1 - y0)).data;
+            let green = 0;
+            let red = 0;
+            let white = 0;
+
+            for (let i = 0; i < data.length; i += 4) {
+                const r = data[i];
+                const g = data[i + 1];
+                const b = data[i + 2];
+                if (g > 135 && g > r * 1.25 && g > b * 1.25) green++;
+                if (r > 145 && r > g * 1.25 && r > b * 1.15) red++;
+                if (r > 170 && g > 170 && b > 150 && Math.abs(r - g) < 55) white++;
+            }
+
+            if (green > red && green > white * 0.6) return 'match';
+            if (red > green && red > white * 0.6) return 'mismatch';
+            if (white > 0) return 'neutral';
+            return 'unknown';
+        }
+
+        function readAuraBonus(aura, ocr) {
+            if (!aura) return 0;
+            const drain = findNearestDrainWord(aura, ocr.words, ocr.width, ocr.height);
+            if (!drain || !Number.isFinite(drain.value)) return 0;
+            return Math.max(0, Math.min(40, Math.abs(drain.value)));
+        }
+
+        async function handleSlotScreenshotUpload(event) {
+            const file = event.target.files?.[0];
+            event.target.value = '';
+            if (!file || screenshotBusy.value) return;
+
+            screenshotBusy.value = true;
+            screenshotStatus.value = t('screenshotBusy');
+            try {
+                const ocr = await recognizeScreenshot(file);
+                const matches = getScreenshotModMatches(ocr);
+                const layout = classifyScreenshotSlots(matches, ocr.width, ocr.height);
+                let imported = 0;
+                let uncertain = 0;
+
+                layout.normal.forEach((match, index) => {
+                    const drain = findNearestDrainWord(match, ocr.words, ocr.width, ocr.height);
+                    const color = drain ? classifyDrainColor(ocr.ctx, drain.word.bbox, ocr.width, ocr.height) : 'unknown';
+                    if (color === 'match') {
+                        slots.value[index] = match.mod.polarity;
+                        imported++;
+                    } else if (color === 'neutral') {
+                        slots.value[index] = 'none';
+                        imported++;
+                    } else {
+                        uncertain++;
+                    }
+                });
+
+                if (layout.special) {
+                    const drain = findNearestDrainWord(layout.special, ocr.words, ocr.width, ocr.height);
+                    const color = drain ? classifyDrainColor(ocr.ctx, drain.word.bbox, ocr.width, ocr.height) : 'unknown';
+                    if (color === 'match') {
+                        slots.value[SPECIAL_SLOT_INDEX] = layout.special.mod.polarity;
+                        imported++;
+                    } else if (color === 'neutral') {
+                        slots.value[SPECIAL_SLOT_INDEX] = 'none';
+                        imported++;
+                    } else {
+                        uncertain++;
+                    }
+                }
+
+                markDirty();
+                screenshotStatus.value = t('screenshotSlotsDone', imported, uncertain);
+            } catch (error) {
+                screenshotStatus.value = t('screenshotError', error.message || String(error));
+            } finally {
+                screenshotBusy.value = false;
+            }
+        }
+
+        async function handleBuildScreenshotUpload(event) {
+            const file = event.target.files?.[0];
+            event.target.value = '';
+            if (!file || screenshotBusy.value) return;
+
+            screenshotBusy.value = true;
+            screenshotStatus.value = t('screenshotBusy');
+            try {
+                const ocr = await recognizeScreenshot(file);
+                const matches = getScreenshotModMatches(ocr);
+                const layout = classifyScreenshotSlots(matches, ocr.width, ocr.height);
+                const loadout = activeLoadout.value;
+                loadout.mods = createEmptyMods();
+                loadout.specialMod = createMod();
+
+                layout.normal.forEach((match, index) => {
+                    if (index < NORMAL_SLOT_COUNT) {
+                        applyDatabaseMod(loadout.mods[index], match.mod);
+                    }
+                });
+
+                let specialImported = 0;
+                if (layout.special) {
+                    applyDatabaseMod(loadout.specialMod, layout.special.mod);
+                    specialImported = 1;
+                }
+
+                const auraBonus = readAuraBonus(layout.aura, ocr);
+                if (auraBonus > 0) {
+                    loadout.capacity = 60 + auraBonus;
+                }
+
+                const imported = layout.normal.length + specialImported;
+                if (imported === 0) {
+                    screenshotStatus.value = t('screenshotNoMods');
+                    return;
+                }
+
+                screenshotStatus.value = t('screenshotBuildDone', imported, auraBonus);
+                calculate();
+            } catch (error) {
+                screenshotStatus.value = t('screenshotError', error.message || String(error));
+            } finally {
+                screenshotBusy.value = false;
+            }
         }
 
         function getNormalPlan(mods, slotList) {
@@ -1374,6 +1761,8 @@ createApp({
             preferOmniForma,
             preferUmbraForma,
             slots,
+            screenshotStatus,
+            screenshotBusy,
             steps,
             loadouts,
             activeLoadoutIndex,
@@ -1420,7 +1809,9 @@ createApp({
             getResultHeadline,
             goToStep,
             nextStep,
-            prevStep
+            prevStep,
+            handleSlotScreenshotUpload,
+            handleBuildScreenshotUpload
         };
     }
 }).mount('#app');

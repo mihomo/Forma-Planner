@@ -258,6 +258,7 @@ button {
 .arsenal-panel,
 .slot-board,
 .db-status,
+.screenshot-panel,
 .loadout-tabs,
 .loadout-command,
 .mod-slot-layout,
@@ -562,6 +563,58 @@ button {
   content: "•";
   color: var(--gold);
   margin-right: 8px;
+}
+
+.screenshot-panel {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  align-items: center;
+  margin-top: 10px;
+  padding: 12px;
+  border-color: rgba(228, 189, 104, 0.22);
+  background: linear-gradient(135deg, rgba(228, 189, 104, 0.08), rgba(101, 217, 239, 0.045));
+}
+
+.screenshot-panel.compact {
+  margin: 8px 0 10px;
+}
+
+.screenshot-panel h3 {
+  margin: 3px 0 4px;
+  font-size: 1rem;
+}
+
+.screenshot-panel p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.file-btn {
+  position: relative;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.file-btn.disabled {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.file-btn input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.screenshot-status {
+  grid-column: 1 / -1;
+  color: #c3f7ff;
+  font-size: 0.9rem;
+  padding-top: 2px;
 }
 
 .loadout-tabs {
@@ -1057,7 +1110,8 @@ button {
 
   .stepper,
   .topbar-stats,
-  .loadout-command {
+  .loadout-command,
+  .screenshot-panel {
     grid-template-columns: 1fr;
   }
 
