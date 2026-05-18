@@ -53,7 +53,7 @@ const I18N = {
         preferOmni: '优先使用全能福马',
         preferOmniHint: '多配置下节省 2 个及以上普通 Forma 时启用',
         preferUmbra: '优先使用 Umbra 福马',
-        preferUmbraHint: '节省 2 个及以上普通 Forma 时启用',
+        preferUmbraHint: '配卡含 Umbra MOD 时同次数优先匹配，否则节省 2 个及以上普通 Forma 时启用',
         specialSlot: '特殊/劣化',
         specialSlotFull: '特殊/劣化槽',
         slotLabel: (n) => `槽位 ${n}`,
@@ -133,7 +133,7 @@ const I18N = {
         preferOmni: 'Prefer Omni Forma',
         preferOmniHint: 'Use when it saves at least 2 regular Forma across multiple builds',
         preferUmbra: 'Prefer Umbra Forma',
-        preferUmbraHint: 'Use when it saves at least 2 regular Forma',
+        preferUmbraHint: 'Prefer matching Umbra MODs on ties; otherwise use when it saves at least 2 regular Forma',
         specialSlot: 'Exilus',
         specialSlotFull: 'Exilus Slot',
         slotLabel: (n) => `Slot ${n}`,
@@ -782,10 +782,33 @@ createApp({
 
             if (usesOmni && !preferOmniForma.value) return false;
             if (usesUmbra && !preferUmbraForma.value) return false;
+            if (usesUmbra && hasUmbraPolarityMods(validLoadouts) && candidate.formas <= baselineOrdinaryFormas) return true;
             // Omni mainly solves multi-config polarity conflicts. Umbra can be valuable even for one config.
             if (usesOmni && validLoadouts.length < 2) return false;
 
             return baselineOrdinaryFormas - candidate.formas > 1;
+        }
+
+        function hasUmbraPolarityMods(validLoadouts) {
+            return validLoadouts.some((loadout) =>
+                loadout.mods.some((mod) => hasModData(mod) && mod.polarity === 'umbra')
+                || (hasModData(loadout.specialMod) && loadout.specialMod.polarity === 'umbra')
+            );
+        }
+
+        function compareFeasibleCandidate(a, b, validLoadouts) {
+            const formaCompare = a.formas - b.formas;
+            if (formaCompare !== 0) return formaCompare;
+
+            if (preferUmbraForma.value && hasUmbraPolarityMods(validLoadouts)) {
+                const umbraCompare = b.addedUmbraCount - a.addedUmbraCount;
+                if (umbraCompare !== 0) return umbraCompare;
+            }
+
+            return a.omniCount - b.omniCount
+                || a.umbraCount - b.umbraCount
+                || a.optimisticCost - b.optimisticCost
+                || a.sig.localeCompare(b.sig);
         }
 
         function getChangedSlotCount(originalCounts, targetCounts) {
@@ -1166,13 +1189,7 @@ createApp({
             const feasibleCandidates = reachableCandidates
                 .filter((candidate) => candidate.optimisticPossible)
                 .filter((candidate) => isExpensiveFormaCandidateAllowed(candidate, baselineOrdinaryFeasibleFormas, validLoadouts))
-                .sort((a, b) =>
-                    a.formas - b.formas
-                    || a.omniCount - b.omniCount
-                    || a.umbraCount - b.umbraCount
-                    || a.optimisticCost - b.optimisticCost
-                    || a.sig.localeCompare(b.sig)
-                );
+                .sort((a, b) => compareFeasibleCandidate(a, b, validLoadouts));
 
             for (const candidate of feasibleCandidates) {
                 if (performance.now() > deadline) {

@@ -77,7 +77,7 @@ Important options:
 - `Allow overriding existing polarities`: when enabled, the optimizer may replace old polarities to reduce Forma count.
 - When disabled, existing non-empty polarities are protected and the optimizer will try to add new Forma without destroying them.
 - `Prefer Omni Forma`: disabled by default. When enabled, Omni Forma is used only if it saves more than one regular Forma in multi-build planning.
-- `Prefer Umbra Forma`: disabled by default. When enabled, Umbra Forma is used only if it saves more than one regular Forma.
+- `Prefer Umbra Forma`: disabled by default. When enabled, builds with Umbra MODs prefer matching Umbra slots when the Forma count ties; otherwise Umbra Forma is used only if it saves more than one regular Forma.
 
 The app will still use Omni or Umbra Forma when there is no other feasible solution.
 
