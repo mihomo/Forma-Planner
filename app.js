@@ -112,9 +112,9 @@ const I18N = {
         polOmni: '全能 (Omni)',
         screenshotImport: '截图识别',
         uploadCurrentSlots: '识别已有槽位',
-        uploadCurrentSlotsHint: '上传自己的战甲或武器配卡截图；绿色消耗代表槽位匹配，会自动写入对应极性，无法确认的槽位会保留原值。',
+        uploadCurrentSlotsHint: '上传自己的战甲或武器配卡截图，或直接 Ctrl+V 粘贴截图；绿色消耗代表槽位匹配，会自动写入对应极性，无法确认的槽位会保留原值。',
         uploadTargetBuild: '识别目标配卡并计算',
-        uploadTargetBuildHint: '上传目标配卡截图；会按截图顺序写入普通槽与劣化槽。战甲截图会尝试读取光环加成并更新总容量。',
+        uploadTargetBuildHint: '上传目标配卡截图，或直接 Ctrl+V 粘贴截图；会按截图顺序写入普通槽与劣化槽。战甲截图会尝试读取光环加成并更新总容量。',
         chooseImage: '选择截图',
         screenshotBusy: '正在识别截图，请稍候……',
         screenshotNoOcr: '截图识别需要加载 Tesseract.js，请检查网络或稍后重试。',
@@ -204,9 +204,9 @@ const I18N = {
         polOmni: 'Omni',
         screenshotImport: 'Screenshot OCR',
         uploadCurrentSlots: 'Read current slots',
-        uploadCurrentSlotsHint: 'Upload your own Warframe or weapon build screenshot. Green drain means the slot matches and its polarity can be imported; uncertain slots keep their current value.',
+        uploadCurrentSlotsHint: 'Upload your own Warframe or weapon build screenshot, or press Ctrl+V to paste one. Green drain means the slot matches and its polarity can be imported; uncertain slots keep their current value.',
         uploadTargetBuild: 'Read target build and calculate',
-        uploadTargetBuildHint: 'Upload a target build screenshot. Mods are written in screenshot order. Warframe screenshots try to read Aura capacity bonus.',
+        uploadTargetBuildHint: 'Upload a target build screenshot, or press Ctrl+V to paste one. Mods are written in screenshot order. Warframe screenshots try to read Aura capacity bonus.',
         chooseImage: 'Choose image',
         screenshotBusy: 'Reading screenshot…',
         screenshotNoOcr: 'Screenshot OCR requires Tesseract.js. Check your network and try again.',
@@ -905,9 +905,7 @@ createApp({
             return Math.max(0, Math.min(40, Math.abs(drain.value)));
         }
 
-        async function handleSlotScreenshotUpload(event) {
-            const file = event.target.files?.[0];
-            event.target.value = '';
+        async function processSlotScreenshotFile(file) {
             if (!file || screenshotBusy.value) return;
 
             screenshotBusy.value = true;
@@ -956,9 +954,7 @@ createApp({
             }
         }
 
-        async function handleBuildScreenshotUpload(event) {
-            const file = event.target.files?.[0];
-            event.target.value = '';
+        async function processBuildScreenshotFile(file) {
             if (!file || screenshotBusy.value) return;
 
             screenshotBusy.value = true;
@@ -1002,6 +998,39 @@ createApp({
                 screenshotBusy.value = false;
             }
         }
+
+        async function handleSlotScreenshotUpload(event) {
+            const file = event.target.files?.[0];
+            event.target.value = '';
+            await processSlotScreenshotFile(file);
+        }
+
+        async function handleBuildScreenshotUpload(event) {
+            const file = event.target.files?.[0];
+            event.target.value = '';
+            await processBuildScreenshotFile(file);
+        }
+
+        function getPastedImageFile(event) {
+            const items = Array.from(event.clipboardData?.items || []);
+            const imageItem = items.find((item) => item.kind === 'file' && item.type.startsWith('image/'));
+            return imageItem?.getAsFile() || null;
+        }
+
+        function handleScreenshotPaste(event) {
+            if (screenshotBusy.value || (currentStep.value !== 1 && currentStep.value !== 2)) return;
+            const file = getPastedImageFile(event);
+            if (!file) return;
+
+            event.preventDefault();
+            if (currentStep.value === 1) {
+                processSlotScreenshotFile(file);
+            } else {
+                processBuildScreenshotFile(file);
+            }
+        }
+
+        document.addEventListener('paste', handleScreenshotPaste);
 
         function getNormalPlan(mods, slotList) {
             const paddedMods = [];
