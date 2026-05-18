@@ -88,7 +88,7 @@ The app will still use Omni or Umbra Forma when there is no other feasible solut
 
 You can fill the build manually, upload a target build screenshot on step 2, or press Ctrl+V to paste one. Screenshot OCR writes normal-slot MODs in visual order, detects the right-side or top-right Exilus slot, and for Warframe screenshots tries to read the top-left Aura capacity bonus.
 
-OCR runs entirely in the browser, so it works on GitHub Pages without a backend. Different screenshot resolutions are handled with relative positions, but the image should keep complete MOD cards, drain numbers, and the core slot area visible.
+OCR runs entirely in the browser, so it works on GitHub Pages without a backend. The first run downloads the OCR engine and Chinese language pack, which can take tens of seconds on slow networks. Different screenshot resolutions are handled with relative positions, but the image should keep complete MOD cards, drain numbers, and the core slot area visible.
 
 Each build has:
 

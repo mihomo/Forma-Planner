@@ -29,6 +29,13 @@ const RAW_DATABASES = {
 const SEARCH_LIMIT = 250000;
 const SEARCH_TIMEOUT_MS = 12000;
 const IMPOSSIBLE_COST = 1000000;
+const OCR_SCRIPT_URLS = [
+    'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js',
+    'https://unpkg.com/tesseract.js@5/dist/tesseract.min.js'
+];
+const OCR_SCRIPT_TIMEOUT_MS = 15000;
+const OCR_RECOGNIZE_TIMEOUT_MS = 90000;
+const OCR_MAX_IMAGE_SIDE = 1400;
 
 const I18N = {
     'zh-hans': {
@@ -117,6 +124,10 @@ const I18N = {
         uploadTargetBuildHint: '上传目标配卡截图，或直接 Ctrl+V 粘贴截图；会按截图顺序写入普通槽与劣化槽。战甲截图会尝试读取光环加成并更新总容量。',
         chooseImage: '选择截图',
         screenshotBusy: '正在识别截图，请稍候……',
+        screenshotLoadingOcr: '正在加载 OCR 引擎，首次使用可能需要几十秒……',
+        screenshotPreparing: '正在压缩并准备截图……',
+        screenshotOcrProgress: (percent) => `正在识别截图：${percent}%`,
+        screenshotTimeout: 'OCR 初始化或识别超时。请刷新后重试，或裁剪截图只保留 MOD 区域；如果网络较慢，首次加载语言包可能失败。',
         screenshotNoOcr: '截图识别需要加载 Tesseract.js，请检查网络或稍后重试。',
         screenshotSlotsDone: (count, uncertain) => `已识别 ${count} 个已有极性槽${uncertain ? `，${uncertain} 个槽位无法可靠判断，已保留原值` : ''}。`,
         screenshotBuildDone: (count, auraBonus) => `已写入 ${count} 张 MOD${auraBonus ? `，并按光环加成将总容量更新为 ${60 + auraBonus}` : ''}，已开始推演。`,
@@ -209,6 +220,10 @@ const I18N = {
         uploadTargetBuildHint: 'Upload a target build screenshot, or press Ctrl+V to paste one. Mods are written in screenshot order. Warframe screenshots try to read Aura capacity bonus.',
         chooseImage: 'Choose image',
         screenshotBusy: 'Reading screenshot…',
+        screenshotLoadingOcr: 'Loading OCR engine. The first run may take tens of seconds…',
+        screenshotPreparing: 'Preparing and resizing screenshot…',
+        screenshotOcrProgress: (percent) => `Reading screenshot: ${percent}%`,
+        screenshotTimeout: 'OCR initialization or recognition timed out. Refresh and try again, or crop the screenshot to the MOD area. Slow networks may fail during the first language-pack load.',
         screenshotNoOcr: 'Screenshot OCR requires Tesseract.js. Check your network and try again.',
         screenshotSlotsDone: (count, uncertain) => `Imported ${count} current polarity slots${uncertain ? `; ${uncertain} uncertain slots were kept unchanged` : ''}.`,
         screenshotBuildDone: (count, auraBonus) => `Imported ${count} MODs${auraBonus ? ` and updated capacity to ${60 + auraBonus} from Aura bonus` : ''}. Calculation started.`,
@@ -642,10 +657,24 @@ createApp({
             focusNextModName(event.target, mode, index);
         }
 
+        function withTimeout(promise, timeoutMs, message) {
+            let timeoutId = null;
+            const timeout = new Promise((_, reject) => {
+                timeoutId = window.setTimeout(() => reject(new Error(message)), timeoutMs);
+            });
+            return Promise.race([promise, timeout]).finally(() => {
+                if (timeoutId !== null) window.clearTimeout(timeoutId);
+            });
+        }
+
         function loadScript(src) {
             return new Promise((resolve, reject) => {
                 const existing = document.querySelector(`script[src="${src}"]`);
                 if (existing) {
+                    if (existing.dataset.loaded === 'true') {
+                        resolve();
+                        return;
+                    }
                     existing.addEventListener('load', resolve, { once: true });
                     existing.addEventListener('error', reject, { once: true });
                     return;
@@ -654,7 +683,10 @@ createApp({
                 const script = document.createElement('script');
                 script.src = src;
                 script.async = true;
-                script.onload = resolve;
+                script.onload = () => {
+                    script.dataset.loaded = 'true';
+                    resolve();
+                };
                 script.onerror = reject;
                 document.head.appendChild(script);
             });
@@ -662,12 +694,18 @@ createApp({
 
         async function ensureScreenshotOcr() {
             if (window.Tesseract) return true;
-            try {
-                await loadScript('https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js');
-                return Boolean(window.Tesseract);
-            } catch {
-                return false;
+
+            screenshotStatus.value = t('screenshotLoadingOcr');
+            for (const src of OCR_SCRIPT_URLS) {
+                try {
+                    await withTimeout(loadScript(src), OCR_SCRIPT_TIMEOUT_MS, t('screenshotTimeout'));
+                    if (window.Tesseract) return true;
+                } catch {
+                    // Try the next CDN mirror.
+                }
             }
+
+            return false;
         }
 
         function loadScreenshotImage(file) {
@@ -687,9 +725,12 @@ createApp({
         }
 
         function drawScreenshotToCanvas(image) {
+            const sourceWidth = image.naturalWidth || image.width;
+            const sourceHeight = image.naturalHeight || image.height;
+            const scale = Math.min(1, OCR_MAX_IMAGE_SIDE / Math.max(sourceWidth, sourceHeight));
             const canvas = document.createElement('canvas');
-            canvas.width = image.naturalWidth || image.width;
-            canvas.height = image.naturalHeight || image.height;
+            canvas.width = Math.max(1, Math.round(sourceWidth * scale));
+            canvas.height = Math.max(1, Math.round(sourceHeight * scale));
             const ctx = canvas.getContext('2d', { willReadFrequently: true });
             ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
             return { canvas, ctx };
@@ -699,9 +740,17 @@ createApp({
             const hasOcr = await ensureScreenshotOcr();
             if (!hasOcr) throw new Error(t('screenshotNoOcr'));
 
+            screenshotStatus.value = t('screenshotPreparing');
             const image = await loadScreenshotImage(file);
             const { canvas, ctx } = drawScreenshotToCanvas(image);
-            const { data } = await window.Tesseract.recognize(canvas, 'chi_sim+eng');
+            const recognition = window.Tesseract.recognize(canvas, 'chi_sim+eng', {
+                logger: (message) => {
+                    if (message.status && Number.isFinite(message.progress)) {
+                        screenshotStatus.value = t('screenshotOcrProgress', Math.round(message.progress * 100));
+                    }
+                }
+            });
+            const { data } = await withTimeout(recognition, OCR_RECOGNIZE_TIMEOUT_MS, t('screenshotTimeout'));
             return {
                 width: canvas.width,
                 height: canvas.height,
